@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'model_dao.dart';
-import 'model_model.dart';
+// import 'model_dao.dart';
+// import 'model_model.dart';
+import 'package:modelgo/model_dao.dart';
+import 'package:modelgo/model_model.dart';
+import 'dart:io';
 
 class UploadModelScreen extends StatefulWidget {
   @override
