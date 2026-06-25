@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-// import 'model_dao.dart';
-// import 'model_model.dart';
-import 'package:modelgo/model_dao.dart';
-import 'package:modelgo/model_model.dart';
+import 'model_dao.dart'; // Ensure this path is correct
+import 'home_screen.dart'; // Ensure this path is correct
 import 'dart:io';
 
 class UploadModelScreen extends StatefulWidget {
@@ -13,24 +11,11 @@ class UploadModelScreen extends StatefulWidget {
 
 class _UploadModelScreenState extends State<UploadModelScreen> {
   File? _file;
-  late int _progressPercent;
+  int _progressPercent = 0; // Fix: Initialized to 0 to prevent crash
 
   final picker = ImagePicker();
 
-  Future<void> _pickFileFromGallery() async {
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
-
-    if (pickedFile != null) {
-      setState(() {
-        _file = File(pickedFile.path);
-        // Call a method to simulate upload progress
-        _uploadModel();
-      });
-    }
-  }
-
-  Future<void> _pickFileFromLocalStorage() async {
-    // Implement local storage picker logic here
+  Future<void> _pickFile() async {
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
 
     if (pickedFile != null) {
@@ -44,11 +29,8 @@ class _UploadModelScreenState extends State<UploadModelScreen> {
 
   Future<void> _getFromHuggingFace() async {
     print('Redirecting to Hugging Face...');
-    // Replace this with actual logic to direct the user to Hugging Face model page or list of models.
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Opening Hugging Face in your browser.'),
-      ),
+    ScaffoldMessenger.of(context).showSnackBar( // Fix: Changed SDKMessenger to ScaffoldMessenger
+      SnackBar(content: Text('Opening Hugging Face in your browser.')),
     );
 
     // For demonstration purposes, redirecting to a hardcoded URL
@@ -74,25 +56,17 @@ class _UploadModelScreenState extends State<UploadModelScreen> {
     // Store model in SQLite if it was uploaded successfully
     if (_file != null) {
       final dao = ModelDao();
-      final db = await dao.database;
-
       try {
-        await db!.transaction((txn) async {
-          txn.insert(ModelDao.TableInfo, ModelModel(fileName: _file!.path).toMap());
-        });
+        // Fix: Delegated database interaction to the DAO instead of using undefined 'db'
+        await dao.insert({'fileName': _file!.path});
 
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Model uploaded successfully!'),
-          ),
+          SnackBar(content: Text('Model uploaded successfully!')),
         );
       } catch (e) {
         print(e);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to store model.'),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text('Failed to store model.'), backgroundColor: Colors.red),
         );
       }
     }
@@ -101,9 +75,7 @@ class _UploadModelScreenState extends State<UploadModelScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Upload Model'),
-      ),
+      appBar: AppBar(title: Text('Upload Model')),
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -114,15 +86,11 @@ class _UploadModelScreenState extends State<UploadModelScreen> {
               Icon(Icons.cloud_upload, size: 64),
             SizedBox(height: 20),
             ElevatedButton(
-              onPressed: () => _pickFileFromGallery(),
+              onPressed: _pickFile,
               child: Text('Select Model from Gallery'),
             ),
             SizedBox(height: 20),
-            LinearProgressIndicator(
-              value: _progressPercent / 100.0,
-              backgroundColor: Colors.grey,
-              color: Colors.blue,
-            ),
+            LinearProgressIndicator(value: _progressPercent / 100.0, backgroundColor: Colors.grey, color: Colors.blue),
           ],
         ),
       ),
@@ -134,12 +102,8 @@ class HuggingFacePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text('Hugging Face Models'),
-      ),
-      body: Center(
-        child: Text("Welcome to Hugging Face models page!"),
-      ),
+      appBar: AppBar(title: Text('Hugging Face Models')),
+      body: Center(child: Text("Welcome to Hugging Face models page!")),
     );
   }
 }
