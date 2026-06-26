@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:image_picker/image_picker.dart'; // Replace with file picker instead of image_picker
 import 'model_dao.dart'; // Ensure this path is correct
 import 'home_screen.dart'; // Ensure this path is correct
 import 'dart:io';
@@ -13,14 +13,15 @@ class _UploadModelScreenState extends State<UploadModelScreen> {
   File? _file;
   int _progressPercent = 0; // Fix: Initialized to 0 to prevent crash
 
-  final picker = ImagePicker();
+  final picker = ImagePicker(); // Replace with file_picker as per above instructions
 
   Future<void> _pickFile() async {
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    // Use FilePicker instead of ImagePicker
+    final result = await FilePicker.platform.pickFiles(type: FileType.any);
 
-    if (pickedFile != null) {
+    if (result != null) {
       setState(() {
-        _file = File(pickedFile.path);
+        _file = File(result.files.first.path ?? '');
         // Call a method to simulate upload progress
         _uploadModel();
       });
