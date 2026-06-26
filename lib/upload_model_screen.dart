@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart'; // Fixed import
 import 'model_dao.dart'; 
 import 'dart:io';
+import 'hugging_face_page.dart';
 
 class UploadModelScreen extends StatefulWidget {
   @override
@@ -137,16 +138,6 @@ class _UploadModelScreenState extends State<UploadModelScreen> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class HuggingFacePage extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text('Hugging Face Models')),
-      body: Center(child: Text("Welcome to Hugging Face models page!")),
     );
   }
 }
