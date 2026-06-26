@@ -39,7 +39,7 @@ ModelGo is an open-source Flutter application designed to bridge the gap between
 
 1. **Clone the repository:**
    ```bash
-   git clone [https://github.com/Lame-Coders/ModelGo.git](https://github.com/YourUsername/modelgo.git)
+   git clone https://github.com/Lame-Coders/ModelGo.git
    cd modelgo
 
 2. **Fetch Dependencies:**
