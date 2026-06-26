@@ -20,8 +20,6 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
   String? _downloadingFileName;
   double _downloadProgress = 0.0;
   bool _isDownloading = false;
-  
-  // NEW: Token to control cancellation
   CancelToken? _cancelToken; 
 
   Future<void> _searchModels(String query) async {
@@ -65,19 +63,29 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
       Navigator.pop(context); 
 
       final siblings = response.data['siblings'] as List<dynamic>;
-      final ggufFiles = siblings
-          .map((s) => s['rfilename'] as String)
-          .where((name) => name.endsWith('.gguf'))
-          .toList();
+      
+      // Define our maximum safe size for mobile (4 GB)
+      final double maxSizeBytes = 4.0 * 1024 * 1024 * 1024; 
 
-      if (ggufFiles.isEmpty) {
+      // Filter for .gguf AND ensure it's under our size limit
+      final validFiles = siblings.where((s) {
+        final name = s['rfilename'] as String;
+        final size = s['size'] as int?; // Size in bytes
+        
+        if (!name.endsWith('.gguf')) return false;
+        if (size == null || size > maxSizeBytes) return false;
+        
+        return true;
+      }).toList();
+
+      if (validFiles.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No .gguf files found in this repository.')),
+          SnackBar(content: Text('No runnable mobile models (<4GB) found in this repo.')),
         );
         return;
       }
 
-      _showFileSelectionBottomSheet(modelId, ggufFiles);
+      _showFileSelectionBottomSheet(modelId, validFiles);
     } catch (e) {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
@@ -86,30 +94,57 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
     }
   }
 
-  void _showFileSelectionBottomSheet(String modelId, List<String> files) {
+  // Helper method to format bytes into readable MB or GB
+  String _formatSize(int bytes) {
+    final double mb = bytes / (1024 * 1024);
+    if (mb > 1024) {
+      final double gb = mb / 1024;
+      return '${gb.toStringAsFixed(2)} GB';
+    }
+    return '${mb.toStringAsFixed(0)} MB';
+  }
+
+  // Updated to accept the full file object (so we can read the size)
+  void _showFileSelectionBottomSheet(String modelId, List<dynamic> files) {
     showModalBottomSheet(
       context: context,
       builder: (context) {
-        return ListView.builder(
-          itemCount: files.length,
-          itemBuilder: (context, index) {
-            final fileName = files[index];
-            return ListTile(
-              leading: Icon(Icons.download),
-              title: Text(fileName),
-              onTap: () {
-                Navigator.pop(context);
-                _downloadModelFile(modelId, fileName);
-              },
-            );
-          },
+        return Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Text(
+                'Select Quantization (<4GB)',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+            Expanded(
+              child: ListView.builder(
+                itemCount: files.length,
+                itemBuilder: (context, index) {
+                  final fileData = files[index];
+                  final fileName = fileData['rfilename'] as String;
+                  final fileSizeStr = _formatSize(fileData['size'] as int);
+
+                  return ListTile(
+                    leading: Icon(Icons.download, color: Colors.blue),
+                    title: Text(fileName, style: TextStyle(fontSize: 14)),
+                    trailing: Text(fileSizeStr, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[700])),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _downloadModelFile(modelId, fileName);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
         );
       },
     );
   }
 
   Future<void> _downloadModelFile(String modelId, String fileName) async {
-    // NEW: Initialize the cancel token before starting
     _cancelToken = CancelToken();
 
     setState(() {
@@ -127,7 +162,7 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
       await _dio.download(
         downloadUrl,
         savePath,
-        cancelToken: _cancelToken, // NEW: Attach the token to the download
+        cancelToken: _cancelToken, 
         onReceiveProgress: (received, total) {
           if (total != -1) {
             setState(() {
@@ -153,12 +188,10 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
         _isDownloading = false;
       });
       
-      // NEW: Check if the error was caused by the user canceling
       if (CancelToken.isCancel(e)) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Download canceled by user.')),
         );
-        // Clean up the partially downloaded file
         final partialFile = File(savePath);
         if (await partialFile.exists()) {
           await partialFile.delete();
@@ -171,7 +204,6 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
     }
   }
 
-  // NEW: Method to trigger cancellation
   void _cancelDownload() {
     _cancelToken?.cancel("User triggered cancel");
   }
@@ -218,7 +250,6 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
                       ),
                       SizedBox(width: 10),
                       Text('${(_downloadProgress * 100).toStringAsFixed(1)}%'),
-                      // NEW: Cancel Button in the UI
                       IconButton(
                         icon: Icon(Icons.cancel, color: Colors.red),
                         onPressed: _cancelDownload,
