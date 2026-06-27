@@ -35,4 +35,16 @@ class ModelDao {
     // Fix: Insert the row into the database using the new variable name
     await database.insert('myTable', row);
   }
+
+  
+  Future<List<Map<String, dynamic>>> getAllModels() async {
+    final database = await db;
+    return await database.query('myTable');
+  }
+
+  Future<void> deleteModel(int id) async {
+    final database = await db;
+    await database.delete('myTable', where: 'id = ?', whereArgs: [id]);
+  }
+
 }

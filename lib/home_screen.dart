@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'upload_model_screen.dart';
+import 'manage_models_screen.dart';
 
 class HomeScreen extends StatelessWidget {
   @override
@@ -22,12 +23,15 @@ class HomeScreen extends StatelessWidget {
               child: Text('Upload Model'),
             ),
             SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: () {
-                // Navigate to the model management screen or perform another action
-              },
-              child: Text('Manage Models'),
-            ),
+           ElevatedButton(
+  onPressed: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => ManageModelsScreen()),
+    );
+  },
+  child: Text('Manage Models'),
+),
           ],
         ),
       ),
