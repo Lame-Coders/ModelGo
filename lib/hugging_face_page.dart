@@ -10,7 +10,6 @@ class HuggingFacePage extends StatefulWidget {
 }
 
 class _HuggingFacePageState extends State<HuggingFacePage> {
-  final TextEditingController _searchController = TextEditingController();
   final Dio _dio = Dio();
   
   List<dynamic> _models = [];
@@ -22,9 +21,14 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
   bool _isDownloading = false;
   CancelToken? _cancelToken; 
 
-  Future<void> _searchModels(String query) async {
-    if (query.isEmpty) return;
+  @override
+  void initState() {
+    super.initState();
+    // Automatically fetch popular GGUF models when the page loads
+    _fetchMobileFriendlyModels();
+  }
 
+  Future<void> _fetchMobileFriendlyModels() async {
     setState(() {
       _isLoading = true;
     });
@@ -33,9 +37,10 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
       final response = await _dio.get(
         'https://huggingface.co/api/models',
         queryParameters: {
-          'search': query,
           'filter': 'gguf',
-          'limit': 15,
+          'sort': 'downloads',  // Get the most popular/reliable models
+          'direction': -1,      // Descending order (highest downloads first)
+          'limit': 25,          // Load the top 25
         },
       );
 
@@ -52,59 +57,50 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
   }
 
   Future<void> _showModelFiles(String modelId) async {
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) => Center(child: CircularProgressIndicator()),
-  );
-
-  try {
-    final response = await _dio.get('https://huggingface.co/api/models/$modelId');
-    Navigator.pop(context);
-
-    final siblings = response.data['siblings'] as List<dynamic>;
-
-    final allGgufFiles = siblings.where((s) {
-      final name = s['rfilename'] as String;
-      return name.endsWith('.gguf');
-    }).toList();
-
-    if (allGgufFiles.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No GGUF files found.')),
-      );
-      return;
-    }
-
-    // Sort with safe null-checking for 'size'
-    allGgufFiles.sort((a, b) {
-      // Use '?? 0' to treat null sizes as 0 bytes, preventing the crash
-      final sizeA = (a['size'] ?? 0) as int;
-      final sizeB = (b['size'] ?? 0) as int;
-      return sizeA.compareTo(sizeB);
-    });
-
-    _showFileSelectionBottomSheet(modelId, allGgufFiles);
-  } catch (e) {
-    Navigator.pop(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Error loading files: ${e.toString()}')),
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Center(child: CircularProgressIndicator()),
     );
-  }
-}
 
-// Scoring helper: Higher = better for mobile inference
-int _calculateMobileScore(String name) {
-  int score = 0;
-  if (name.contains('Q4_K_M')) score += 100; // The industry standard
-  if (name.contains('K_M')) score += 50;     // General K-quants are good
-  if (name.contains('Q5_K_M')) score += 80;  // High quality
-  if (name.contains('Q4_0')) score += 20;    // Basic but runnable
-  return score;
-}
+    try {
+      final response = await _dio.get('https://huggingface.co/api/models/$modelId');
+      Navigator.pop(context);
+
+      final siblings = response.data['siblings'] as List<dynamic>;
+
+      final allGgufFiles = siblings.where((s) {
+        final name = s['rfilename'] as String;
+        return name.endsWith('.gguf');
+      }).toList();
+
+      if (allGgufFiles.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No GGUF files found.')),
+        );
+        return;
+      }
+
+      // Sort with safe null-checking for 'size'
+      allGgufFiles.sort((a, b) {
+        // Use '?? 0' to treat null sizes as 0 bytes, preventing the crash
+        final sizeA = (a['size'] ?? 0) as int;
+        final sizeB = (b['size'] ?? 0) as int;
+        return sizeA.compareTo(sizeB); // Smallest models at the top
+      });
+
+      _showFileSelectionBottomSheet(modelId, allGgufFiles);
+    } catch (e) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading files: ${e.toString()}')),
+      );
+    }
+  }
 
   // Helper method to format bytes into readable MB or GB
   String _formatSize(int bytes) {
+    if (bytes == 0) return 'Unknown Size'; // Handle the null/0 fallback gracefully
     final double mb = bytes / (1024 * 1024);
     if (mb > 1024) {
       final double gb = mb / 1024;
@@ -113,7 +109,6 @@ int _calculateMobileScore(String name) {
     return '${mb.toStringAsFixed(0)} MB';
   }
 
-  // Updated to accept the full file object (so we can read the size)
   void _showFileSelectionBottomSheet(String modelId, List<dynamic> files) {
     showModalBottomSheet(
       context: context,
@@ -123,7 +118,7 @@ int _calculateMobileScore(String name) {
             Padding(
               padding: const EdgeInsets.all(16.0),
               child: Text(
-                'Select Quantization (<4GB)',
+                'Select Quantization',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
             ),
@@ -133,8 +128,10 @@ int _calculateMobileScore(String name) {
                 itemBuilder: (context, index) {
                   final fileData = files[index];
                   final fileName = fileData['rfilename'] as String;
+                  
+                  // Safely handle null sizes for the UI display
                   final fileSize = (fileData['size'] ?? 0) as int;
-                  final fileSizeStr = _formatSize(fileData['size'] as int);
+                  final fileSizeStr = _formatSize(fileSize);
 
                   return ListTile(
                     leading: Icon(Icons.download, color: Colors.blue),
@@ -221,31 +218,9 @@ int _calculateMobileScore(String name) {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('Hugging Face Hub')),
+      appBar: AppBar(title: Text('Popular Mobile Models')),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    decoration: InputDecoration(
-                      hintText: 'Search for GGUF models',
-                      border: OutlineInputBorder(),
-                    ),
-                    onSubmitted: _searchModels,
-                  ),
-                ),
-                IconButton(
-                  icon: Icon(Icons.search),
-                  onPressed: () => _searchModels(_searchController.text),
-                ),
-              ],
-            ),
-          ),
-          
           if (_isDownloading)
             Padding(
               padding: const EdgeInsets.all(16.0),
@@ -274,21 +249,23 @@ int _calculateMobileScore(String name) {
           Expanded(
             child: _isLoading
                 ? Center(child: CircularProgressIndicator())
-                : ListView.builder(
-                    itemCount: _models.length,
-                    itemBuilder: (context, index) {
-                      final model = _models[index];
-                      return Card(
-                        margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        child: ListTile(
-                          title: Text(model['id'], style: TextStyle(fontWeight: FontWeight.bold)),
-                          subtitle: Text('Downloads: ${model['downloads']}'),
-                          trailing: Icon(Icons.arrow_forward_ios, size: 16),
-                          onTap: _isDownloading ? null : () => _showModelFiles(model['id']),
-                        ),
-                      );
-                    },
-                  ),
+                : _models.isEmpty
+                    ? Center(child: Text('No models found.'))
+                    : ListView.builder(
+                        itemCount: _models.length,
+                        itemBuilder: (context, index) {
+                          final model = _models[index];
+                          return Card(
+                            margin: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            child: ListTile(
+                              title: Text(model['id'], style: TextStyle(fontWeight: FontWeight.bold)),
+                              subtitle: Text('Downloads: ${model['downloads']}'),
+                              trailing: Icon(Icons.arrow_forward_ios, size: 16),
+                              onTap: _isDownloading ? null : () => _showModelFiles(model['id']),
+                            ),
+                          );
+                        },
+                      ),
           ),
         ],
       ),
