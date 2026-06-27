@@ -52,47 +52,56 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
   }
 
   Future<void> _showModelFiles(String modelId) async {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => Center(child: CircularProgressIndicator()),
-    );
+  showDialog(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) => Center(child: CircularProgressIndicator()),
+  );
 
-    try {
-      final response = await _dio.get('https://huggingface.co/api/models/$modelId');
-      Navigator.pop(context); 
+  try {
+    final response = await _dio.get('https://huggingface.co/api/models/$modelId');
+    Navigator.pop(context);
 
-      final siblings = response.data['siblings'] as List<dynamic>;
-      
-      // Define our maximum safe size for mobile (4 GB)
-      final double maxSizeBytes = 4.0 * 1024 * 1024 * 1024; 
+    final siblings = response.data['siblings'] as List<dynamic>;
 
-      // Filter for .gguf AND ensure it's under our size limit
-      final validFiles = siblings.where((s) {
-        final name = s['rfilename'] as String;
-        final size = s['size'] as int?; // Size in bytes
-        
-        if (!name.endsWith('.gguf')) return false;
-        if (size == null || size > maxSizeBytes) return false;
-        
-        return true;
-      }).toList();
+    final allGgufFiles = siblings.where((s) {
+      final name = s['rfilename'] as String;
+      return name.endsWith('.gguf');
+    }).toList();
 
-      if (validFiles.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No runnable mobile models (<4GB) found in this repo.')),
-        );
-        return;
-      }
-
-      _showFileSelectionBottomSheet(modelId, validFiles);
-    } catch (e) {
-      Navigator.pop(context);
+    if (allGgufFiles.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to fetch files.')),
+        SnackBar(content: Text('No GGUF files found.')),
       );
+      return;
     }
+
+    // Sort with safe null-checking for 'size'
+    allGgufFiles.sort((a, b) {
+      // Use '?? 0' to treat null sizes as 0 bytes, preventing the crash
+      final sizeA = (a['size'] ?? 0) as int;
+      final sizeB = (b['size'] ?? 0) as int;
+      return sizeA.compareTo(sizeB);
+    });
+
+    _showFileSelectionBottomSheet(modelId, allGgufFiles);
+  } catch (e) {
+    Navigator.pop(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Error loading files: ${e.toString()}')),
+    );
   }
+}
+
+// Scoring helper: Higher = better for mobile inference
+int _calculateMobileScore(String name) {
+  int score = 0;
+  if (name.contains('Q4_K_M')) score += 100; // The industry standard
+  if (name.contains('K_M')) score += 50;     // General K-quants are good
+  if (name.contains('Q5_K_M')) score += 80;  // High quality
+  if (name.contains('Q4_0')) score += 20;    // Basic but runnable
+  return score;
+}
 
   // Helper method to format bytes into readable MB or GB
   String _formatSize(int bytes) {
@@ -124,6 +133,7 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
                 itemBuilder: (context, index) {
                   final fileData = files[index];
                   final fileName = fileData['rfilename'] as String;
+                  final fileSize = (fileData['size'] ?? 0) as int;
                   final fileSizeStr = _formatSize(fileData['size'] as int);
 
                   return ListTile(
