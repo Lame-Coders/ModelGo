@@ -34,22 +34,26 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
     IsolateNameServer.registerPortWithName(_port.sendPort, 'downloader_send_port');
     _port.listen((dynamic data) {
       String id = data[0];
-      int status = data[1];
-      int progress = data[2];
+      int statusInt = data[1] as int;
+      int progress = data[2] as int;
+
+      // FIX: Convert the integer from the isolate back into the Enum
+      DownloadTaskStatus status = DownloadTaskStatus.values[statusInt];
 
       if (_currentTaskId == id) {
         setState(() {
           _downloadProgress = progress / 100.0;
         });
 
-        if (status == DownloadTaskStatus.complete.value) {
+        // FIX: Compare directly against the enum, removing the ".value"
+        if (status == DownloadTaskStatus.complete) {
           _handleDownloadComplete();
-        } else if (status == DownloadTaskStatus.failed.value || status == DownloadTaskStatus.canceled.value) {
+        } else if (status == DownloadTaskStatus.failed || status == DownloadTaskStatus.canceled) {
           setState(() {
             _isDownloading = false;
           });
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(status == DownloadTaskStatus.canceled.value ? 'Download canceled.' : 'Download failed.')),
+            SnackBar(content: Text(status == DownloadTaskStatus.canceled ? 'Download canceled.' : 'Download failed.')),
           );
         }
       }
