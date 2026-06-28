@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'model_dao.dart';
+import 'chat_screen.dart'; // Imported the ChatScreen
 
 class ManageModelsScreen extends StatefulWidget {
   @override
@@ -45,13 +46,27 @@ class _ManageModelsScreenState extends State<ManageModelsScreen> {
               itemCount: _models.length,
               itemBuilder: (context, index) {
                 final model = _models[index];
+                final fullPath = model['fileName'].toString();
+                final displayName = fullPath.split('/').last;
+
                 return ListTile(
                   leading: Icon(Icons.psychology, color: Colors.blue),
-                  title: Text(model['fileName'].toString().split('/').last),
-                  subtitle: Text(model['fileName']),
+                  title: Text(displayName),
+                  subtitle: Text(fullPath),
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ChatScreen(
+                          modelName: displayName,
+                          modelPath: fullPath,
+                        ),
+                      ),
+                    );
+                  },
                   trailing: IconButton(
                     icon: Icon(Icons.delete, color: Colors.red),
-                    onPressed: () => _deleteModel(model['id'], model['fileName']),
+                    onPressed: () => _deleteModel(model['id'], fullPath),
                   ),
                 );
               },
