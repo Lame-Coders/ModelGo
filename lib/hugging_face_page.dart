@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter_downloader/flutter_downloader.dart';
+import 'dart:isolate';
+import 'dart:ui';
 import 'dart:io';
 import 'model_dao.dart';
 
@@ -19,13 +22,55 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
   String? _downloadingFileName;
   double _downloadProgress = 0.0;
   bool _isDownloading = false;
-  CancelToken? _cancelToken; 
+  String? _currentTaskId;
+
+  ReceivePort _port = ReceivePort();
 
   @override
   void initState() {
     super.initState();
-    // Automatically fetch popular GGUF models when the page loads
+    
+    // Register the port to receive background download updates
+    IsolateNameServer.registerPortWithName(_port.sendPort, 'downloader_send_port');
+    _port.listen((dynamic data) {
+      String id = data[0];
+      int status = data[1];
+      int progress = data[2];
+
+      if (_currentTaskId == id) {
+        setState(() {
+          _downloadProgress = progress / 100.0;
+        });
+
+        if (status == DownloadTaskStatus.complete.value) {
+          _handleDownloadComplete();
+        } else if (status == DownloadTaskStatus.failed.value || status == DownloadTaskStatus.canceled.value) {
+          setState(() {
+            _isDownloading = false;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(status == DownloadTaskStatus.canceled.value ? 'Download canceled.' : 'Download failed.')),
+          );
+        }
+      }
+    });
+
+    FlutterDownloader.registerCallback(downloadCallback);
+
     _fetchMobileFriendlyModels();
+  }
+
+  @override
+  void dispose() {
+    IsolateNameServer.removePortNameMapping('downloader_send_port');
+    super.dispose();
+  }
+
+  // Must be static or top-level to run in the background isolate
+  @pragma('vm:entry-point')
+  static void downloadCallback(String id, int status, int progress) {
+    final SendPort? send = IsolateNameServer.lookupPortByName('downloader_send_port');
+    send?.send([id, status, progress]);
   }
 
   Future<void> _fetchMobileFriendlyModels() async {
@@ -38,9 +83,9 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
         'https://huggingface.co/api/models',
         queryParameters: {
           'filter': 'gguf',
-          'sort': 'downloads',  // Get the most popular/reliable models
-          'direction': -1,      // Descending order (highest downloads first)
-          'limit': 25,          // Load the top 25
+          'sort': 'downloads',
+          'direction': -1,
+          'limit': 25,
         },
       );
 
@@ -81,12 +126,10 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
         return;
       }
 
-      // Sort with safe null-checking for 'size'
       allGgufFiles.sort((a, b) {
-        // Use '?? 0' to treat null sizes as 0 bytes, preventing the crash
         final sizeA = (a['size'] ?? 0) as int;
         final sizeB = (b['size'] ?? 0) as int;
-        return sizeA.compareTo(sizeB); // Smallest models at the top
+        return sizeA.compareTo(sizeB); 
       });
 
       _showFileSelectionBottomSheet(modelId, allGgufFiles);
@@ -98,9 +141,8 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
     }
   }
 
-  // Helper method to format bytes into readable MB or GB
   String _formatSize(int bytes) {
-    if (bytes == 0) return 'Unknown Size'; // Handle the null/0 fallback gracefully
+    if (bytes == 0) return 'Unknown Size'; 
     final double mb = bytes / (1024 * 1024);
     if (mb > 1024) {
       final double gb = mb / 1024;
@@ -129,7 +171,6 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
                   final fileData = files[index];
                   final fileName = fileData['rfilename'] as String;
                   
-                  // Safely handle null sizes for the UI display
                   final fileSize = (fileData['size'] ?? 0) as int;
                   final fileSizeStr = _formatSize(fileSize);
 
@@ -139,7 +180,7 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
                     trailing: Text(fileSizeStr, style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey[700])),
                     onTap: () {
                       Navigator.pop(context);
-                      _downloadModelFile(modelId, fileName);
+                      _startBackgroundDownload(modelId, fileName);
                     },
                   );
                 },
@@ -151,8 +192,9 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
     );
   }
 
-  Future<void> _downloadModelFile(String modelId, String fileName) async {
-    _cancelToken = CancelToken();
+  Future<void> _startBackgroundDownload(String modelId, String fileName) async {
+    final dir = await getApplicationDocumentsDirectory();
+    final downloadUrl = 'https://huggingface.co/$modelId/resolve/main/$fileName';
 
     setState(() {
       _isDownloading = true;
@@ -160,59 +202,51 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
       _downloadProgress = 0.0;
     });
 
-    final dir = await getApplicationDocumentsDirectory();
-    final savePath = '${dir.path}/$fileName';
-
     try {
-      final downloadUrl = 'https://huggingface.co/$modelId/resolve/main/$fileName';
-      
-      await _dio.download(
-        downloadUrl,
-        savePath,
-        cancelToken: _cancelToken, 
-        onReceiveProgress: (received, total) {
-          if (total != -1) {
-            setState(() {
-              _downloadProgress = received / total;
-            });
-          }
-        },
+      final taskId = await FlutterDownloader.enqueue(
+        url: downloadUrl,
+        savedDir: dir.path,
+        fileName: fileName,
+        showNotification: true, // Shows progress in the Android notification tray
+        openFileFromNotification: false,
       );
 
-      final dao = ModelDao();
-      await dao.insert({'fileName': savePath});
-
+      setState(() {
+        _currentTaskId = taskId;
+      });
+    } catch (e) {
       setState(() {
         _isDownloading = false;
       });
-
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Model downloaded successfully!')),
+        SnackBar(content: Text('Failed to start download: $e')),
       );
-
-    } on DioException catch (e) {
-      setState(() {
-        _isDownloading = false;
-      });
-      
-      if (CancelToken.isCancel(e)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download canceled by user.')),
-        );
-        final partialFile = File(savePath);
-        if (await partialFile.exists()) {
-          await partialFile.delete();
-        }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: ${e.message}')),
-        );
-      }
     }
+  }
+  
+  Future<void> _handleDownloadComplete() async {
+    if (_downloadingFileName == null) return;
+    
+    final dir = await getApplicationDocumentsDirectory();
+    final savePath = '${dir.path}/$_downloadingFileName';
+    
+    final dao = ModelDao();
+    await dao.insert({'fileName': savePath});
+
+    setState(() {
+      _isDownloading = false;
+      _currentTaskId = null;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Model downloaded successfully!')),
+    );
   }
 
   void _cancelDownload() {
-    _cancelToken?.cancel("User triggered cancel");
+    if (_currentTaskId != null) {
+      FlutterDownloader.cancel(taskId: _currentTaskId!);
+    }
   }
 
   @override
