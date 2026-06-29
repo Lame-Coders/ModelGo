@@ -87,10 +87,9 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
 
   // Must be static or top-level to run in the background isolate
   @pragma('vm:entry-point')
-  static void downloadCallback(String id, DownloadTaskStatus status, int progress) {
+  static void downloadCallback(String id, int status, int progress) { // CHANGED THIS TO int status
     final SendPort? send = IsolateNameServer.lookupPortByName('downloader_send_port');
-    // Send the enum's index across the port safely
-    send?.send([id, status.index, progress]);
+    send?.send([id, status, progress]);
   }
   
   Future<void> _fetchMobileFriendlyModels() async {
