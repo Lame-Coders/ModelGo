@@ -30,22 +30,25 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
   void initState() {
     super.initState();
     
-    // Register the port to receive background download updates
+    // 1. Clear any old port mappings (Crucial for preventing frozen UI on Hot Restarts)
+    IsolateNameServer.removePortNameMapping('downloader_send_port');
+    
+    // 2. Register the new port
     IsolateNameServer.registerPortWithName(_port.sendPort, 'downloader_send_port');
+    
     _port.listen((dynamic data) {
       String id = data[0];
       int statusInt = data[1] as int;
       int progress = data[2] as int;
 
-      // FIX: Convert the integer from the isolate back into the Enum
-      DownloadTaskStatus status = DownloadTaskStatus.values[statusInt];
+      // Safely convert the integer status from the native side back to the enum
+      DownloadTaskStatus status = DownloadTaskStatus.fromInt(statusInt); 
 
       if (_currentTaskId == id) {
         setState(() {
           _downloadProgress = progress / 100.0;
         });
 
-        // FIX: Compare directly against the enum, removing the ".value"
         if (status == DownloadTaskStatus.complete) {
           _handleDownloadComplete();
         } else if (status == DownloadTaskStatus.failed || status == DownloadTaskStatus.canceled) {
@@ -74,6 +77,7 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
   @pragma('vm:entry-point')
   static void downloadCallback(String id, int status, int progress) {
     final SendPort? send = IsolateNameServer.lookupPortByName('downloader_send_port');
+    // Send the raw integer status across the port
     send?.send([id, status, progress]);
   }
 
