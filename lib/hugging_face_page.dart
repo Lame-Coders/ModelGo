@@ -38,22 +38,34 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
     
     _port.listen((dynamic data) {
       String id = data[0];
-      int statusInt = data[1] as int;
+      int statusIndex = data[1] as int;
       int progress = data[2] as int;
 
-      // Safely convert the integer status from the native side back to the enum
-      DownloadTaskStatus status = DownloadTaskStatus.fromInt(statusInt); 
+      // Extract the enum safely using the index
+      DownloadTaskStatus status = DownloadTaskStatus.values[statusIndex]; 
 
-      if (_currentTaskId == id) {
+      // Update UI even if the app was minimized and _currentTaskId was lost
+      if (_currentTaskId == id || _currentTaskId == null) { 
+        if (!_isDownloading && status == DownloadTaskStatus.running) {
+             setState(() { _isDownloading = true; _currentTaskId = id; });
+        }
+
         setState(() {
           _downloadProgress = progress / 100.0;
         });
 
         if (status == DownloadTaskStatus.complete) {
-          _handleDownloadComplete();
+          setState(() {
+            _isDownloading = false;
+            _currentTaskId = null;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Model downloaded successfully!')),
+          );
         } else if (status == DownloadTaskStatus.failed || status == DownloadTaskStatus.canceled) {
           setState(() {
             _isDownloading = false;
+            _currentTaskId = null;
           });
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(status == DownloadTaskStatus.canceled ? 'Download canceled.' : 'Download failed.')),
@@ -75,12 +87,12 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
 
   // Must be static or top-level to run in the background isolate
   @pragma('vm:entry-point')
-  static void downloadCallback(String id, int status, int progress) {
+  static void downloadCallback(String id, DownloadTaskStatus status, int progress) {
     final SendPort? send = IsolateNameServer.lookupPortByName('downloader_send_port');
-    // Send the raw integer status across the port
-    send?.send([id, status, progress]);
+    // Send the enum's index across the port safely
+    send?.send([id, status.index, progress]);
   }
-
+  
   Future<void> _fetchMobileFriendlyModels() async {
     setState(() {
       _isLoading = true;
