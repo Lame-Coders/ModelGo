@@ -1,29 +1,44 @@
-import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 import 'dart:async';
+import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 
 class LlamaService {
-  LlamaCpp? _llama;
+  LlamaParent? _llama;
+  StreamSubscription? _subscription;
+  
+  // We use a broadcast stream so we can listen to multiple messages in a row
+  final StreamController<String> _tokenStream = StreamController<String>.broadcast();
 
-  // 1. Load the model into RAM
+  // 1. Load the model into RAM using a background isolate
   Future<void> loadModel(String modelPath) async {
-    _llama = LlamaCpp(
-      modelPath: modelPath,
-      contextSize: 2048, // Adjust based on your phone's RAM (2048 is safe for most)
+    final loadCommand = LlamaLoad(
+      path: modelPath,
+      modelParams: ModelParams(), 
+      contextParams: ContextParams(),
+      samplingParams: SamplerParams(),
     );
-    await _llama!.load();
+    
+    _llama = LlamaParent(loadCommand);
+    await _llama!.init(); // Wait for the C++ engine to load the weights
+    
+    // Listen to the native C++ stream and pass the words to our Dart UI
+    _subscription = _llama!.stream.listen((token) {
+      _tokenStream.add(token);
+    });
   }
 
-  // 2. Stream the text response
+  // 2. Send the user's prompt and stream the response
   Stream<String> generateResponse(String prompt) {
     if (_llama == null) throw Exception("Model not loaded");
     
-    // This streams tokens as they are generated
-    return _llama!.predict(prompt);
+    _llama!.prompt(prompt); // Send text to the engine
+    return _tokenStream.stream; // Stream words back as they are generated
   }
 
-  // 3. Clean up memory when switching models
+  // 3. Prevent memory leaks when leaving the chat screen
   void dispose() {
+    _subscription?.cancel();
+    _llama?.stop();
     _llama?.dispose();
-    _llama = null;
+    _tokenStream.close();
   }
 }
