@@ -27,10 +27,12 @@ class LlamaService {
   }
 
   // 2. Send the user's prompt and stream the response
-  Stream<String> generateResponse(String prompt) {
+  Stream<String> generateResponse(String text) {
     if (_llama == null) throw Exception("Model not loaded");
     
-    _llama!.prompt(prompt); // Send text to the engine
+    // CHANGED THIS LINE: It must be 'sendPrompt' for version 0.1.2+1
+    _llama!.sendPrompt(text); 
+    
     return _tokenStream.stream; // Stream words back as they are generated
   }
 
