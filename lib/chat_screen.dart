@@ -24,8 +24,15 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _initializeModel() async {
+    setState(() => _isLoading = true);
+
+    // 1. Give Flutter 500 milliseconds to actually draw the loading circle on the screen!
+    await Future.delayed(const Duration(milliseconds: 500));
+
     try {
+      // 2. NOW let the C++ engine lock the thread and do the heavy lifting
       await _llamaService.loadModel(widget.modelPath);
+      
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -36,15 +43,15 @@ class _ChatScreenState extends State<ChatScreen> {
           context: context,
           barrierDismissible: false,
           builder: (context) => AlertDialog(
-            title: Text("Engine Crash", style: TextStyle(color: Colors.red)),
-            content: Text("The C++ engine failed to load this model. It likely uses an unsupported architecture (like Gemma 3 or Qwen 3.5).\n\nError details: $e"),
+            title: const Text("Engine Crash", style: TextStyle(color: Colors.red)),
+            content: Text("The C++ engine failed to load this model. It likely uses an unsupported architecture.\n\nError details: $e"),
             actions: [
               TextButton(
                 onPressed: () {
                   Navigator.pop(context); // Close dialog
                   Navigator.pop(context); // Go back to manage models screen
                 },
-                child: Text("GO BACK"),
+                child: const Text("GO BACK"),
               )
             ],
           )
