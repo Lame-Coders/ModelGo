@@ -13,14 +13,16 @@ class LlamaService {
     final loadCommand = LlamaLoad(
       path: modelPath,
       modelParams: ModelParams(), 
-      contextParams: ContextParams(),
+      
+      // CHANGED THIS LINE: Use the double-dot cascade operator!
+      contextParams: ContextParams()..nCtx = 2048, 
+      
       samplingParams: SamplerParams(),
     );
     
     _llama = LlamaParent(loadCommand);
-    await _llama!.init(); // Wait for the C++ engine to load the weights
+    await _llama!.init(); 
     
-    // Listen to the native C++ stream and pass the words to our Dart UI
     _subscription = _llama!.stream.listen((token) {
       _tokenStream.add(token);
     });

@@ -24,8 +24,33 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _initializeModel() async {
-    await _llamaService.loadModel(widget.modelPath);
-    setState(() => _isLoading = false);
+    try {
+      await _llamaService.loadModel(widget.modelPath);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => AlertDialog(
+            title: Text("Engine Crash", style: TextStyle(color: Colors.red)),
+            content: Text("The C++ engine failed to load this model. It likely uses an unsupported architecture (like Gemma 3 or Qwen 3.5).\n\nError details: $e"),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context); // Close dialog
+                  Navigator.pop(context); // Go back to manage models screen
+                },
+                child: Text("GO BACK"),
+              )
+            ],
+          )
+        );
+      }
+    }
   }
 
   void _sendMessage(String text) async {
