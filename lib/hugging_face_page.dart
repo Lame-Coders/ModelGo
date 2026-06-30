@@ -3,6 +3,7 @@ import 'dart:isolate';
 import 'dart:ui';
 import 'package:flutter_downloader/flutter_downloader.dart';
 import 'package:dio/dio.dart';
+import 'package:path_provider/path_provider.dart';
 
 class HuggingFacePage extends StatefulWidget {
   @override
@@ -142,11 +143,62 @@ class _HuggingFacePageState extends State<HuggingFacePage> {
     );
   }
 
-  // --- Keep your existing _downloadFile method here exactly as you had it ---
-  Future<void> _downloadFile(String modelId) async {
-      // Your existing flutter_downloader logic goes here!
-      // (Construct the hugging face URL, get path, enqueue task)
-      print("Downloading from $modelId..."); 
+  Future<void> _downloadFile(String modelRepo) async {
+    setState(() => _isLoading = true);
+
+    try {
+      // 1. Ask Hugging Face what files are inside this specific repository folder
+      final response = await Dio().get('https://huggingface.co/api/models/$modelRepo/tree/main');
+      final files = response.data as List;
+      
+      // 2. Hunt for the best mobile file (Q4_K_M is the gold standard, fallback to any .gguf)
+      String? targetFilename;
+      for (var file in files) {
+        final path = file['path'] as String;
+        if (path.toLowerCase().endsWith('.gguf')) {
+          targetFilename = path;
+          // If we find the highly optimized Q4 version, stop looking!
+          if (path.toLowerCase().contains('q4_k_m')) break; 
+        }
+      }
+
+      if (targetFilename == null) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('No suitable .gguf file found in this repository!')),
+        );
+        return;
+      }
+
+      // 3. Construct the direct, raw download link
+      final downloadUrl = 'https://huggingface.co/$modelRepo/resolve/main/$targetFilename';
+      
+      // 4. Get the ultra-safe internal app directory so Android won't block it
+      final dir = await getApplicationDocumentsDirectory();
+
+      // 5. Fire up the native Android Downloader!
+      final taskId = await FlutterDownloader.enqueue(
+        url: downloadUrl,
+        savedDir: dir.path,
+        fileName: targetFilename.split('/').last,
+        showNotification: true,
+        openFileFromNotification: false,
+      );
+
+      setState(() {
+        _isLoading = false;
+        if (taskId != null) {
+          _isDownloading = true;
+          _currentTaskId = taskId;
+        }
+      });
+
+    } catch (e) {
+      setState(() => _isLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to start download: $e')),
+      );
+    }
   }
 
   @override
