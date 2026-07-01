@@ -2,50 +2,36 @@ import 'dart:async';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 
 class LlamaService {
-  // We are using the raw Llama class now, completely bypassing LlamaParent!
-  Llama? _llama;
-  
-  final StreamController<String> _tokenStream = StreamController.broadcast();
-  Stream<String> get stream => _tokenStream.stream;
+  LlamaParent? _llama;
 
+  // 1. Safely load the model in the background
   Future<void> loadModel(String modelPath) async {
     final loadCommand = LlamaLoad(
       path: modelPath,
       modelParams: ModelParams(),
-      // Keep the context small to protect your RAM
+      // CRITICAL: Protects your phone's RAM so it doesn't crash
       contextParams: ContextParams()..nCtx = 2048,
       samplingParams: SamplerParams(),
     );
 
-    // NUCLEAR OPTION: Load the C++ engine directly on the main thread.
-    // The screen will freeze completely for 15-30 seconds. Do not touch it.
-    // It cannot timeout!
-    _llama = Llama(loadCommand);
+    _llama = LlamaParent(loadCommand);
+    await _llama!.init(); 
   }
 
-  Future<void> prompt(String text) async {
-    if (_llama == null) return;
-    
-    try {
-      // The raw prompt method returns an Iterable of words.
-      final responseTokens = _llama!.prompt(text);
-      
-      for (final token in responseTokens) {
-        _tokenStream.add(token);
-        // CRITICAL: We must pause for 1 millisecond so Flutter can 
-        // draw the new word on your screen before the C++ engine 
-        // locks the thread to calculate the next word!
-        await Future.delayed(const Duration(milliseconds: 1));
-      }
-      _tokenStream.add("[DONE]");
-      
-    } catch (e) {
-      _tokenStream.add("Error: $e");
+  // 2. Your chat_screen.dart is specifically begging for this method!
+  Stream<String> generateResponse(String text) {
+    if (_llama == null) {
+      throw Exception("Engine not loaded!");
     }
+    
+    // FIXED: In version 0.1.2+1, it is sendPrompt, not prompt!
+    _llama!.sendPrompt(text);
+    
+    // Return the stream of words directly to your UI so your 'await for' loop works
+    return _llama!.stream;
   }
 
   void dispose() {
-    _llama?.dispose();
-    _tokenStream.close();
+    _llama?.stop();
   }
 }
