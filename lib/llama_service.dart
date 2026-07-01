@@ -2,46 +2,49 @@ import 'dart:async';
 import 'package:llama_cpp_dart/llama_cpp_dart.dart';
 
 class LlamaService {
-  LlamaParent? _llama;
-  StreamSubscription? _subscription;
+  // We are using the raw Llama class now, completely bypassing LlamaParent!
+  Llama? _llama;
   
-  // We use a broadcast stream so we can listen to multiple messages in a row
-  final StreamController<String> _tokenStream = StreamController<String>.broadcast();
+  final StreamController<String> _tokenStream = StreamController.broadcast();
+  Stream<String> get stream => _tokenStream.stream;
 
-  // 1. Load the model into RAM using a background isolate
   Future<void> loadModel(String modelPath) async {
     final loadCommand = LlamaLoad(
       path: modelPath,
-      modelParams: ModelParams(), 
-      
-      // CHANGED THIS LINE: Use the double-dot cascade operator!
-      contextParams: ContextParams()..nCtx = 2048, 
-      
+      modelParams: ModelParams(),
+      // Keep the context small to protect your RAM
+      contextParams: ContextParams()..nCtx = 2048,
       samplingParams: SamplerParams(),
     );
-    
-    _llama = LlamaParent(loadCommand);
-    await _llama!.init(); 
-    
-    _subscription = _llama!.stream.listen((token) {
-      _tokenStream.add(token);
-    });
+
+    // NUCLEAR OPTION: Load the C++ engine directly on the main thread.
+    // The screen will freeze completely for 15-30 seconds. Do not touch it.
+    // It cannot timeout!
+    _llama = Llama(loadCommand);
   }
 
-  // 2. Send the user's prompt and stream the response
-  Stream<String> generateResponse(String text) {
-    if (_llama == null) throw Exception("Model not loaded");
+  Future<void> prompt(String text) async {
+    if (_llama == null) return;
     
-    // CHANGED THIS LINE: It must be 'sendPrompt' for version 0.1.2+1
-    _llama!.sendPrompt(text); 
-    
-    return _tokenStream.stream; // Stream words back as they are generated
+    try {
+      // The raw prompt method returns an Iterable of words.
+      final responseTokens = _llama!.prompt(text);
+      
+      for (final token in responseTokens) {
+        _tokenStream.add(token);
+        // CRITICAL: We must pause for 1 millisecond so Flutter can 
+        // draw the new word on your screen before the C++ engine 
+        // locks the thread to calculate the next word!
+        await Future.delayed(const Duration(milliseconds: 1));
+      }
+      _tokenStream.add("[DONE]");
+      
+    } catch (e) {
+      _tokenStream.add("Error: $e");
+    }
   }
 
-  // 3. Prevent memory leaks when leaving the chat screen
   void dispose() {
-    _subscription?.cancel();
-    _llama?.stop();
     _llama?.dispose();
     _tokenStream.close();
   }
